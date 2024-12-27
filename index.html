@@ -1,0 +1,61 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management</title>
+    <script>
+        const apiBaseUrl = "https://irhx94w7jd.execute-api.us-east-1.amazonaws.com/prod/users";
+
+        async function fetchUsers() {
+            const response = await fetch(apiBaseUrl);
+            const users = await response.json();
+            document.getElementById('output').textContent = JSON.stringify(users, null, 2);
+        }
+
+        async function addUser() {
+            const userId = document.getElementById('user_id').value;
+            const name = document.getElementById('name').value;
+            const email = document.getElementById('email').value;
+
+            const response = await fetch(apiBaseUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, name: name, email: email })
+            });
+
+            const result = await response.text();
+            alert(result);
+            fetchUsers();
+        }
+
+        async function deleteUser() {
+            const userId = document.getElementById('delete_user_id').value;
+
+            const response = await fetch(`${apiBaseUrl}?user_id=${userId}`, {
+                method: 'DELETE'
+            });
+
+            const result = await response.text();
+            alert(result);
+            fetchUsers();
+        }
+    </script>
+</head>
+<body>
+    <h1>User Management Frontend</h1>
+    <h2>Add User</h2>
+    <input type="text" id="user_id" placeholder="User ID"><br>
+    <input type="text" id="name" placeholder="Name"><br>
+    <input type="text" id="email" placeholder="Email"><br>
+    <button onclick="addUser()">Add User</button>
+
+    <h2>Delete User</h2>
+    <input type="text" id="delete_user_id" placeholder="User ID to Delete"><br>
+    <button onclick="deleteUser()">Delete User</button>
+
+    <h2>Users List</h2>
+    <button onclick="fetchUsers()">Refresh Users</button>
+    <pre id="output"></pre>
+</body>
+</html>

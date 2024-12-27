@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for P4.1 - Serverless User Management Application
+
+Resources:
+  # DynamoDB Table
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      TableName: serverless_users
+      AttributeDefinitions: 
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema: 
+        - AttributeName: user_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: Allow
+            Principal: 
+              Service: 
+                - lambda.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaBasicExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: !GetAtt DynamoDBTable.Arn
+      Path: /
+
+  # Lambda Function
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: P4_1_UserManagementFunction
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('serverless_users')
+
+          def lambda_handler(event, context):
+              http_method = event['httpMethod']
+              if http_method == 'GET':
+                  response = table.scan()
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps(response['Items'])
+                  }
+              elif http_method == 'POST':
+                  user_data = json.loads(event['body'])
+                  table.put_item(Item=user_data)
+                  return {
+                      'statusCode': 200,
+                      'body': 'User added successfully'
+                  }
+              elif http_method == 'DELETE':
+                  user_id = event['queryStringParameters']['user_id']
+                  table.delete_item(Key={'user_id': user_id})
+                  return {
+                      'statusCode': 200,
+                      'body': 'User deleted successfully'
+                  }
+              else:
+                  return {
+                      'statusCode': 400,
+                      'body': 'Unsupported HTTP method'
+                  }
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: P4.1-UserManagementAPI
+
+  ApiGatewayResourceUsers:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: users
+      RestApiId: !Ref ApiGateway
+
+  ApiGatewayMethodGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref ApiGatewayResourceUsers
+      RestApiId: !Ref ApiGateway
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub
+          - arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - Region: !Ref AWS::Region
+            LambdaArn: !GetAtt LambdaFunction.Arn
+
+  ApiGatewayMethodPost:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      ResourceId: !Ref ApiGatewayResourceUsers
+      RestApiId: !Ref ApiGateway
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub
+          - arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - Region: !Ref AWS::Region
+            LambdaArn: !GetAtt LambdaFunction.Arn
+
+  ApiGatewayMethodDelete:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: DELETE
+      ResourceId: !Ref ApiGatewayResourceUsers
+      RestApiId: !Ref ApiGateway
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub
+          - arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - Region: !Ref AWS::Region
+            LambdaArn: !GetAtt LambdaFunction.Arn
+
+  # S3 Bucket for Frontend
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: p4-1-frontend
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::p4-1-frontend/*"
+
+Outputs:
+  ApiUrl:
+    Description: "Base URL for the API Gateway"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/users"
+  S3WebsiteUrl:
+    Description: "URL for the S3 bucket static website"
+    Value: !GetAtt S3Bucket.WebsiteURL
